@@ -53,3 +53,5 @@ The operator can also run inside the cluster as a Deployment. To do that first b
     ```bash
     make deploy IMG=<registry>/<imagename>:<tag>
     ```
+
+Fri Jul 19 14:33:00 EDT 2024
