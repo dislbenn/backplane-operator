@@ -1183,12 +1183,24 @@ func (r *MultiClusterEngineReconciler) applyEnvConfig(template *unstructured.Uns
 		return err
 	}
 
+	containerFound := false
 	for i, container := range containers {
 		// We need to cast the container to a map of string interfaces to access the container fields.
 		containerMap := container.(map[string]interface{})
 
 		if containerMap["name"] == containerName {
-			existingEnv, _, _ := unstructured.NestedSlice(containerMap, "env")
+			containerFound = true
+
+			existingEnv, found, err := unstructured.NestedSlice(containerMap, "env")
+			if err != nil {
+				log.Error(err, "Failed to get environment variables", "Container", containerName)
+				return err
+			}
+
+			if !found {
+				existingEnv = []interface{}{}
+			}
+
 			for _, envConfig := range envConfigs {
 				envVar := map[string]interface{}{
 					"name":  envConfig.Name,
@@ -1206,6 +1218,10 @@ func (r *MultiClusterEngineReconciler) applyEnvConfig(template *unstructured.Uns
 			}
 			break
 		}
+	}
+
+	if !containerFound {
+		log.V(1).Info("Container name does not exist in deployment", "Name", template.GetName())
 	}
 
 	if err = unstructured.SetNestedSlice(template.Object, containers, "spec", "template", "spec",
