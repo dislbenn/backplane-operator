@@ -32,6 +32,7 @@ const (
 	ServerFoundationChartDir          = "pkg/templates/charts/toggle/server-foundation"
 	HyperShiftChartDir                = "pkg/templates/charts/toggle/hypershift"
 	ClusterProxyAddonDir              = "pkg/templates/charts/toggle/cluster-proxy-addon"
+	ClusterAPIDir                     = "pkg/templates/charts/toggle/cluster-api"
 )
 
 func EnabledStatus(namespacedName types.NamespacedName) status.StatusReporter {
