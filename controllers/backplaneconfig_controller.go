@@ -23,10 +23,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
+	ocopv1 "github.com/openshift/api/operator/v1"
 	backplanev1 "github.com/stolostron/backplane-operator/api/v1"
 	"github.com/stolostron/backplane-operator/pkg/foundation"
 	"github.com/stolostron/backplane-operator/pkg/overrides"
@@ -92,7 +94,8 @@ const (
 )
 
 var (
-	log = logf.Log.WithName("reconcile")
+	log              = logf.Log.WithName("reconcile")
+	stsEnabledStatus = false
 )
 
 // +kubebuilder:rbac:groups=multicluster.openshift.io,resources=multiclusterengines,verbs=get;list;watch;create;update;patch;delete
@@ -156,6 +159,9 @@ var (
 
 // InternalEngineComponent
 // +kubebuilder:rbac:groups="multicluster.openshift.io",resources="internalenginecomponents",verbs=create;get;delete;patch;list;watch
+
+//+kubebuilder:rbac:groups=operator.openshift.io,resources=cloudcredentials;consoles,verbs=get;list;watch;update;patch
+//+kubebuilder:rbac:groups=config.openshift.io,resources=authentications;infrastructures,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -221,10 +227,15 @@ func (r *MultiClusterEngineReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}
 	}()
 
+	stsEnabled, err := r.isSTSEnabled(ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// If deletion detected, finalize backplane config
 	if backplaneConfig.GetDeletionTimestamp() != nil {
 		if controllerutil.ContainsFinalizer(backplaneConfig, backplaneFinalizer) {
-			result, err := r.finalizeBackplaneConfig(ctx, backplaneConfig) // returns all errors
+			result, err := r.finalizeBackplaneConfig(ctx, backplaneConfig, stsEnabled) // returns all errors
 			if err != nil {
 				r.Log.Info(err.Error())
 				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
@@ -422,7 +433,7 @@ func (r *MultiClusterEngineReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}
 	}
 
-	result, err = r.DeployAlwaysSubcomponents(ctx, backplaneConfig)
+	result, err = r.DeployAlwaysSubcomponents(ctx, backplaneConfig, stsEnabled)
 	if err != nil {
 		cond := status.NewCondition(
 			backplanev1.MultiClusterEngineProgressing,
@@ -440,7 +451,7 @@ func (r *MultiClusterEngineReconciler) Reconcile(ctx context.Context, req ctrl.R
 		}
 	}
 
-	result, err = r.ensureToggleableComponents(ctx, backplaneConfig)
+	result, err = r.ensureToggleableComponents(ctx, backplaneConfig, stsEnabled)
 	if err != nil {
 		return result, err
 	}
@@ -475,6 +486,122 @@ func (r *MultiClusterEngineReconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	r.Log.Info("Reconcile completed. Requeuing after " + utils.ShortRefreshInterval.String())
 	return ctrl.Result{RequeueAfter: utils.ShortRefreshInterval}, nil
+}
+
+/*
+ensureAuthenticationIssuerNotEmpty ensures that the Authentication ServiceAccountIssuer is not empty.
+*/
+func (r *MultiClusterEngineReconciler) ensureAuthenticationIssuerNotEmpty(ctx context.Context) (ctrl.Result, bool, error) {
+	auth := &configv1.Authentication{}
+	exists, err := r.ensureObjectExistsAndNotDeleted(ctx, auth, "cluster")
+
+	if err != nil || !exists {
+		return ctrl.Result{RequeueAfter: utils.WarningRefreshInterval}, false, err
+	}
+	stsEnabled := auth.Spec.ServiceAccountIssuer != "" // Determine STS enabled status
+
+	if stsEnabledStatus && !stsEnabled {
+		r.Log.Info("Cluster is no longer STS enabled due to empty Authentication ServiceAccountIssuer",
+			"Name", auth.GetName())
+	}
+
+	return ctrl.Result{}, stsEnabled, nil
+}
+
+/*
+ensureCloudCredentialModeManual ensures that the CloudCredential CredentialMode is set to Manual.
+*/
+func (r *MultiClusterEngineReconciler) ensureCloudCredentialModeManual(ctx context.Context) (ctrl.Result, bool, error) {
+	cloudCred := &ocopv1.CloudCredential{}
+	exists, err := r.ensureObjectExistsAndNotDeleted(ctx, cloudCred, "cluster")
+
+	if err != nil || !exists {
+		return ctrl.Result{RequeueAfter: utils.WarningRefreshInterval}, false, err
+	}
+	stsEnabled := cloudCred.Spec.CredentialsMode == "Manual" // Determine STS enabled status
+
+	if stsEnabledStatus && !stsEnabled {
+		r.Log.Info("Cluster is no longer STS enabled due to CloudCredential CredentialMode not set to Manual.", "Name",
+			cloudCred.GetName())
+	}
+	return ctrl.Result{}, stsEnabled, nil
+}
+
+/*
+ensureInfrastructureAWS ensures that the infrastructure platform type is AWS.
+*/
+func (r *MultiClusterEngineReconciler) ensureInfrastructureAWS(ctx context.Context) (ctrl.Result, bool, error) {
+	infra := &configv1.Infrastructure{}
+	exists, err := r.ensureObjectExistsAndNotDeleted(ctx, infra, "cluster")
+
+	if err != nil || !exists {
+		return ctrl.Result{RequeueAfter: utils.WarningRefreshInterval}, false, err
+	}
+
+	stsEnabled := infra.Spec.PlatformSpec.Type == "AWS"
+
+	if stsEnabledStatus && !stsEnabled {
+		r.Log.Info("Infrastructure platform type is not AWS. Cluster is not STS enabled", "Name", infra.GetName(),
+			"Type", infra.Spec.PlatformSpec.Type)
+	}
+	return ctrl.Result{}, stsEnabled, nil
+}
+
+/*
+ensureObjectExistsAndNotDeleted ensures the existence of the specified object and that it has not been deleted.
+*/
+func (r *MultiClusterEngineReconciler) ensureObjectExistsAndNotDeleted(ctx context.Context, obj client.Object,
+	name string) (bool, error) {
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: name}, obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			r.Log.Info(
+				fmt.Sprintf("%s was not found. Ignoring since object must be deleted",
+					reflect.TypeOf(obj).Elem().Name()), "Name", name)
+			return false, nil
+		}
+
+		r.Log.Error(err, fmt.Sprintf("failed to get %s", reflect.TypeOf(obj).Elem().Name()), "Name", name)
+		return false, err
+	}
+	return true, nil
+}
+
+/*
+isSTSEnabled checks if STS (Security Token Service) is enabled by verifying that all required conditions are met.
+*/
+func (r *MultiClusterEngineReconciler) isSTSEnabled(ctx context.Context) (bool, error) {
+	_, authOK, err := r.ensureAuthenticationIssuerNotEmpty(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	_, cloudCredOK, err := r.ensureCloudCredentialModeManual(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	_, infraOK, err := r.ensureInfrastructureAWS(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if all conditions are met
+	allConditionsMet := authOK && cloudCredOK && infraOK
+
+	// Check if the status has changed, and log the message if it has changed
+	if allConditionsMet != stsEnabledStatus {
+		stsEnabledStatus = allConditionsMet
+
+		if stsEnabledStatus {
+			r.Log.Info("STS is enabled.")
+
+		} else {
+			r.Log.Info("STS is not enabled.")
+		}
+	}
+
+	// Return the combined result of all conditions
+	return allConditionsMet, nil
 }
 
 // This function set the operator condition created by OLM to either allow or disallow upgrade based on whether X.Y desired version matches current version
@@ -777,11 +904,11 @@ func (r *MultiClusterEngineReconciler) createMetricsServiceMonitor(ctx context.C
 
 // DeployAlwaysSubcomponents ensures all subcomponents exist
 func (r *MultiClusterEngineReconciler) DeployAlwaysSubcomponents(ctx context.Context,
-	backplaneConfig *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	backplaneConfig *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 	chartsDir := renderer.AlwaysChartsDir
 	// Renders all templates from charts
 	templates, errs := renderer.RenderCharts(chartsDir, backplaneConfig, r.CacheSpec.ImageOverrides,
-		r.CacheSpec.TemplateOverrides)
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -933,12 +1060,12 @@ func (r *MultiClusterEngineReconciler) fetchChartOrCRDPath(component string, use
 }
 
 func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Context,
-	backplaneConfig *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	backplaneConfig *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 	errs := map[string]error{}
 	requeue := false
 
 	if backplaneConfig.Enabled(backplanev1.ManagedServiceAccount) && foundation.CanInstallAddons(ctx, r.Client) {
-		result, err := r.ensureManagedServiceAccount(ctx, backplaneConfig)
+		result, err := r.ensureManagedServiceAccount(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -946,7 +1073,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.ManagedServiceAccount] = err
 		}
 	} else {
-		result, err := r.ensureNoManagedServiceAccount(ctx, backplaneConfig)
+		result, err := r.ensureNoManagedServiceAccount(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -956,7 +1083,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 	}
 
 	if backplaneConfig.Enabled(backplanev1.ImageBasedInstallOperator) {
-		result, err := r.ensureImageBasedInstallOperator(ctx, backplaneConfig)
+		result, err := r.ensureImageBasedInstallOperator(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -964,7 +1091,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.ImageBasedInstallOperator] = err
 		}
 	} else {
-		result, err := r.ensureNoImageBasedInstallOperator(ctx, backplaneConfig)
+		result, err := r.ensureNoImageBasedInstallOperator(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -974,7 +1101,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 	}
 
 	if backplaneConfig.Enabled(backplanev1.HyperShift) && foundation.CanInstallAddons(ctx, r.Client) {
-		result, err := r.ensureHyperShift(ctx, backplaneConfig)
+		result, err := r.ensureHyperShift(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -982,7 +1109,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.HyperShift] = err
 		}
 	} else {
-		result, err := r.ensureNoHyperShift(ctx, backplaneConfig)
+		result, err := r.ensureNoHyperShift(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -991,7 +1118,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 		}
 	}
 
-	result, err := r.reconcileHypershiftLocalHosting(ctx, backplaneConfig)
+	result, err := r.reconcileHypershiftLocalHosting(ctx, backplaneConfig, isSTSEnabled)
 	if result != (ctrl.Result{}) {
 		requeue = true
 	}
@@ -1006,7 +1133,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 		}
 
 		if backplaneConfig.Enabled(backplanev1.ConsoleMCE) && ocpConsole {
-			result, err = r.ensureConsoleMCE(ctx, backplaneConfig)
+			result, err = r.ensureConsoleMCE(ctx, backplaneConfig, isSTSEnabled)
 			if result != (ctrl.Result{}) {
 				requeue = true
 			}
@@ -1014,7 +1141,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 				errs[backplanev1.ConsoleMCE] = err
 			}
 		} else {
-			result, err = r.ensureNoConsoleMCE(ctx, backplaneConfig, ocpConsole)
+			result, err = r.ensureNoConsoleMCE(ctx, backplaneConfig, ocpConsole, isSTSEnabled)
 			if result != (ctrl.Result{}) {
 				requeue = true
 			}
@@ -1025,7 +1152,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 	}
 
 	if backplaneConfig.Enabled(backplanev1.Discovery) {
-		result, err = r.ensureDiscovery(ctx, backplaneConfig)
+		result, err = r.ensureDiscovery(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1033,7 +1160,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.Discovery] = err
 		}
 	} else {
-		result, err = r.ensureNoDiscovery(ctx, backplaneConfig)
+		result, err = r.ensureNoDiscovery(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1043,7 +1170,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 	}
 
 	if backplaneConfig.Enabled(backplanev1.Hive) {
-		result, err = r.ensureHive(ctx, backplaneConfig)
+		result, err = r.ensureHive(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1051,7 +1178,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.Hive] = err
 		}
 	} else {
-		result, err = r.ensureNoHive(ctx, backplaneConfig)
+		result, err = r.ensureNoHive(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1061,7 +1188,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 	}
 
 	if backplaneConfig.Enabled(backplanev1.AssistedService) {
-		result, err = r.ensureAssistedService(ctx, backplaneConfig)
+		result, err = r.ensureAssistedService(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1069,7 +1196,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.AssistedService] = err
 		}
 	} else {
-		result, err = r.ensureNoAssistedService(ctx, backplaneConfig)
+		result, err = r.ensureNoAssistedService(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1079,7 +1206,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 	}
 
 	if backplaneConfig.Enabled(backplanev1.ClusterLifecycle) {
-		result, err = r.ensureClusterLifecycle(ctx, backplaneConfig)
+		result, err = r.ensureClusterLifecycle(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1087,7 +1214,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.ClusterLifecycle] = err
 		}
 	} else {
-		result, err = r.ensureNoClusterLifecycle(ctx, backplaneConfig)
+		result, err = r.ensureNoClusterLifecycle(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1097,7 +1224,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 	}
 
 	if backplaneConfig.Enabled(backplanev1.ClusterManager) {
-		result, err = r.ensureClusterManager(ctx, backplaneConfig)
+		result, err = r.ensureClusterManager(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1105,7 +1232,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.ClusterManager] = err
 		}
 	} else {
-		result, err = r.ensureNoClusterManager(ctx, backplaneConfig)
+		result, err = r.ensureNoClusterManager(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1115,7 +1242,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 	}
 
 	if backplaneConfig.Enabled(backplanev1.ServerFoundation) {
-		result, err = r.ensureServerFoundation(ctx, backplaneConfig)
+		result, err = r.ensureServerFoundation(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1123,7 +1250,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.ServerFoundation] = err
 		}
 	} else {
-		result, err = r.ensureNoServerFoundation(ctx, backplaneConfig)
+		result, err = r.ensureNoServerFoundation(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1133,7 +1260,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 	}
 
 	if backplaneConfig.Enabled(backplanev1.ClusterProxyAddon) && foundation.CanInstallAddons(ctx, r.Client) {
-		result, err = r.ensureClusterProxyAddon(ctx, backplaneConfig)
+		result, err = r.ensureClusterProxyAddon(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1141,7 +1268,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.ClusterProxyAddon] = err
 		}
 	} else {
-		result, err = r.ensureNoClusterProxyAddon(ctx, backplaneConfig)
+		result, err = r.ensureNoClusterProxyAddon(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1150,7 +1277,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 		}
 	}
 	if backplaneConfig.Enabled(backplanev1.LocalCluster) {
-		result, err := r.ensureLocalCluster(ctx, backplaneConfig)
+		result, err := r.ensureLocalCluster(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1158,7 +1285,7 @@ func (r *MultiClusterEngineReconciler) ensureToggleableComponents(ctx context.Co
 			errs[backplanev1.LocalCluster] = err
 		}
 	} else {
-		result, err := r.ensureNoLocalCluster(ctx, backplaneConfig)
+		result, err := r.ensureNoLocalCluster(ctx, backplaneConfig, isSTSEnabled)
 		if result != (ctrl.Result{}) {
 			requeue = true
 		}
@@ -1474,7 +1601,7 @@ func (r *MultiClusterEngineReconciler) ensureNoAllInternalEngineComponents(ctx c
 }
 
 func (r *MultiClusterEngineReconciler) finalizeBackplaneConfig(ctx context.Context,
-	backplaneConfig *backplanev1.MultiClusterEngine) (reconcile.Result, error) {
+	backplaneConfig *backplanev1.MultiClusterEngine, isSTSEnabled bool) (reconcile.Result, error) {
 
 	result, err := r.ensureNoAllInternalEngineComponents(ctx, backplaneConfig)
 	if err != nil {

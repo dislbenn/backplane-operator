@@ -39,7 +39,7 @@ var clusterManagementAddOnGVK = schema.GroupVersionKind{
 	Kind:    "ClusterManagementAddOn",
 }
 
-func (r *MultiClusterEngineReconciler) ensureConsoleMCE(ctx context.Context, mce *backplanev1.MultiClusterEngine) (
+func (r *MultiClusterEngineReconciler) ensureConsoleMCE(ctx context.Context, mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (
 	ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "console-mce-console", Namespace: mce.Spec.TargetNamespace}
@@ -54,7 +54,7 @@ func (r *MultiClusterEngineReconciler) ensureConsoleMCE(ctx context.Context, mce
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ConsoleMCE, false)
 	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
-		r.CacheSpec.TemplateOverrides)
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -96,7 +96,7 @@ func (r *MultiClusterEngineReconciler) ensureConsoleMCE(ctx context.Context, mce
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoConsoleMCE(ctx context.Context, mce *backplanev1.MultiClusterEngine,
-	ocpConsole bool) (ctrl.Result, error) {
+	ocpConsole bool, isSTSEnabled bool) (ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "console-mce-console", Namespace: mce.Spec.TargetNamespace}
 	r.StatusManager.RemoveComponent(toggle.EnabledStatus(namespacedName))
@@ -123,7 +123,8 @@ func (r *MultiClusterEngineReconciler) ensureNoConsoleMCE(ctx context.Context, m
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ConsoleMCE, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -146,7 +147,7 @@ func (r *MultiClusterEngineReconciler) ensureNoConsoleMCE(ctx context.Context, m
 }
 
 func (r *MultiClusterEngineReconciler) ensureManagedServiceAccount(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	r.StatusManager.RemoveComponent(toggle.DisabledStatus(types.NamespacedName{Name: "managedservice",
 		Namespace: mce.Spec.TargetNamespace}, []*unstructured.Unstructured{}))
@@ -181,7 +182,8 @@ func (r *MultiClusterEngineReconciler) ensureManagedServiceAccount(ctx context.C
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ManagedServiceAccount, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -221,7 +223,7 @@ func (r *MultiClusterEngineReconciler) ensureManagedServiceAccount(ctx context.C
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoManagedServiceAccount(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	// Ensure that the InternalHubComponent CR instance is deleted for component in MCE.
 	if result, err := r.ensureNoInternalEngineComponent(ctx, mce,
@@ -231,7 +233,8 @@ func (r *MultiClusterEngineReconciler) ensureNoManagedServiceAccount(ctx context
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ManagedServiceAccount, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 	if len(errs) > 0 {
 		for _, err := range errs {
 			log.Info(err.Error())
@@ -343,7 +346,7 @@ func (r *MultiClusterEngineReconciler) removePluginFromConsoleResource(ctx conte
 	return ctrl.Result{}, nil
 }
 
-func (r *MultiClusterEngineReconciler) ensureDiscovery(ctx context.Context, mce *backplanev1.MultiClusterEngine) (
+func (r *MultiClusterEngineReconciler) ensureDiscovery(ctx context.Context, mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (
 	ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "discovery-operator", Namespace: mce.Spec.TargetNamespace}
@@ -357,7 +360,7 @@ func (r *MultiClusterEngineReconciler) ensureDiscovery(ctx context.Context, mce 
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.Discovery, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -384,7 +387,7 @@ func (r *MultiClusterEngineReconciler) ensureDiscovery(ctx context.Context, mce 
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoDiscovery(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "discovery-operator", Namespace: mce.Spec.TargetNamespace}
 
@@ -396,7 +399,8 @@ func (r *MultiClusterEngineReconciler) ensureNoDiscovery(ctx context.Context,
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.Discovery, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -419,8 +423,8 @@ func (r *MultiClusterEngineReconciler) ensureNoDiscovery(ctx context.Context,
 	return ctrl.Result{}, nil
 }
 
-func (r *MultiClusterEngineReconciler) ensureHive(ctx context.Context, mce *backplanev1.MultiClusterEngine) (
-	ctrl.Result, error) {
+func (r *MultiClusterEngineReconciler) ensureHive(ctx context.Context,
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "hive-operator", Namespace: mce.Spec.TargetNamespace}
 	r.StatusManager.RemoveComponent(toggle.DisabledStatus(namespacedName, []*unstructured.Unstructured{}))
@@ -433,7 +437,8 @@ func (r *MultiClusterEngineReconciler) ensureHive(ctx context.Context, mce *back
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.Hive, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -469,9 +474,8 @@ func (r *MultiClusterEngineReconciler) ensureHive(ctx context.Context, mce *back
 	return ctrl.Result{}, nil
 }
 
-func (r *MultiClusterEngineReconciler) ensureNoHive(ctx context.Context, mce *backplanev1.MultiClusterEngine) (
-	ctrl.Result, error) {
-
+func (r *MultiClusterEngineReconciler) ensureNoHive(ctx context.Context,
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 	namespacedName := types.NamespacedName{Name: "hive-operator", Namespace: mce.Spec.TargetNamespace}
 
 	// Ensure that the InternalHubComponent CR instance is deleted for component in MCE.
@@ -482,7 +486,8 @@ func (r *MultiClusterEngineReconciler) ensureNoHive(ctx context.Context, mce *ba
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.Hive, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -518,7 +523,7 @@ func (r *MultiClusterEngineReconciler) ensureNoHive(ctx context.Context, mce *ba
 }
 
 func (r *MultiClusterEngineReconciler) ensureAssistedService(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	targetNamespace := mce.Spec.TargetNamespace
 	if mce.Spec.Overrides != nil && mce.Spec.Overrides.InfrastructureCustomNamespace != "" {
@@ -537,7 +542,7 @@ func (r *MultiClusterEngineReconciler) ensureAssistedService(ctx context.Context
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.AssistedService, false)
 	templates, errs := renderer.RenderChartWithNamespace(chartPath, mce,
-		r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, targetNamespace)
+		r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, targetNamespace, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -564,7 +569,7 @@ func (r *MultiClusterEngineReconciler) ensureAssistedService(ctx context.Context
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoAssistedService(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	targetNamespace := mce.Spec.TargetNamespace
 	if mce.Spec.Overrides != nil && mce.Spec.Overrides.InfrastructureCustomNamespace != "" {
@@ -581,7 +586,7 @@ func (r *MultiClusterEngineReconciler) ensureNoAssistedService(ctx context.Conte
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.AssistedService, false)
 	templates, errs := renderer.RenderChartWithNamespace(chartPath, mce, r.CacheSpec.ImageOverrides,
-		r.CacheSpec.TemplateOverrides, targetNamespace)
+		r.CacheSpec.TemplateOverrides, targetNamespace, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -605,7 +610,7 @@ func (r *MultiClusterEngineReconciler) ensureNoAssistedService(ctx context.Conte
 }
 
 func (r *MultiClusterEngineReconciler) ensureServerFoundation(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "ocm-controller", Namespace: mce.Spec.TargetNamespace}
 	r.StatusManager.RemoveComponent(toggle.DisabledStatus(namespacedName, []*unstructured.Unstructured{}))
@@ -627,7 +632,8 @@ func (r *MultiClusterEngineReconciler) ensureServerFoundation(ctx context.Contex
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ServerFoundation, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -654,7 +660,7 @@ func (r *MultiClusterEngineReconciler) ensureServerFoundation(ctx context.Contex
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoServerFoundation(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	// Ensure that the InternalHubComponent CR instance is created for component in MCE.
 	if result, err := r.ensureNoInternalEngineComponent(ctx, mce,
@@ -664,7 +670,8 @@ func (r *MultiClusterEngineReconciler) ensureNoServerFoundation(ctx context.Cont
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ServerFoundation, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -699,7 +706,7 @@ func (r *MultiClusterEngineReconciler) ensureNoServerFoundation(ctx context.Cont
 }
 
 func (r *MultiClusterEngineReconciler) ensureImageBasedInstallOperator(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "image-based-install-operator", Namespace: mce.Spec.TargetNamespace}
 	r.StatusManager.RemoveComponent(toggle.DisabledStatus(namespacedName, []*unstructured.Unstructured{}))
@@ -712,7 +719,7 @@ func (r *MultiClusterEngineReconciler) ensureImageBasedInstallOperator(ctx conte
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ImageBasedInstallOperator, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -740,7 +747,7 @@ func (r *MultiClusterEngineReconciler) ensureImageBasedInstallOperator(ctx conte
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoImageBasedInstallOperator(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	targetNamespace := mce.Spec.TargetNamespace
 	namespacedName := types.NamespacedName{Name: "image-based-install-operator", Namespace: targetNamespace}
@@ -753,7 +760,7 @@ func (r *MultiClusterEngineReconciler) ensureNoImageBasedInstallOperator(ctx con
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ImageBasedInstallOperator, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -777,7 +784,7 @@ func (r *MultiClusterEngineReconciler) ensureNoImageBasedInstallOperator(ctx con
 }
 
 func (r *MultiClusterEngineReconciler) ensureClusterLifecycle(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	if utils.DeployOnOCP() {
 		namespacedName := types.NamespacedName{Name: "cluster-curator-controller", Namespace: mce.Spec.TargetNamespace}
@@ -805,7 +812,7 @@ func (r *MultiClusterEngineReconciler) ensureClusterLifecycle(ctx context.Contex
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ClusterLifecycle, false)
 	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides,
-		r.CacheSpec.TemplateOverrides)
+		r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -832,7 +839,7 @@ func (r *MultiClusterEngineReconciler) ensureClusterLifecycle(ctx context.Contex
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoClusterLifecycle(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	// Ensure that the InternalHubComponent CR instance is deleted for component in MCE.
 	if result, err := r.ensureNoInternalEngineComponent(ctx, mce,
@@ -842,7 +849,7 @@ func (r *MultiClusterEngineReconciler) ensureNoClusterLifecycle(ctx context.Cont
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ClusterLifecycle, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -878,7 +885,7 @@ func (r *MultiClusterEngineReconciler) ensureNoClusterLifecycle(ctx context.Cont
 }
 
 func (r *MultiClusterEngineReconciler) ensureClusterManager(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "cluster-manager", Namespace: mce.Spec.TargetNamespace}
 	r.StatusManager.RemoveComponent(toggle.DisabledStatus(namespacedName, []*unstructured.Unstructured{}))
@@ -894,7 +901,7 @@ func (r *MultiClusterEngineReconciler) ensureClusterManager(ctx context.Context,
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ClusterManager, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -932,7 +939,7 @@ func (r *MultiClusterEngineReconciler) ensureClusterManager(ctx context.Context,
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoClusterManager(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 	namespacedName := types.NamespacedName{Name: "cluster-manager", Namespace: mce.Spec.TargetNamespace}
 
 	// Ensure that the InternalHubComponent CR instance is deleted for component in MCE.
@@ -943,7 +950,7 @@ func (r *MultiClusterEngineReconciler) ensureNoClusterManager(ctx context.Contex
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ClusterManager, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -998,7 +1005,7 @@ func (r *MultiClusterEngineReconciler) ensureNoClusterManager(ctx context.Contex
 	return ctrl.Result{}, nil
 }
 
-func (r *MultiClusterEngineReconciler) ensureHyperShift(ctx context.Context, mce *backplanev1.MultiClusterEngine) (
+func (r *MultiClusterEngineReconciler) ensureHyperShift(ctx context.Context, mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (
 	ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "hypershift-addon-manager", Namespace: mce.Spec.TargetNamespace}
@@ -1013,7 +1020,7 @@ func (r *MultiClusterEngineReconciler) ensureHyperShift(ctx context.Context, mce
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.HyperShift, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -1052,7 +1059,7 @@ func (r *MultiClusterEngineReconciler) ensureHyperShift(ctx context.Context, mce
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoHyperShift(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	// Ensure that the InternalHubComponent CR instance is deleted for component in MCE.
 	if result, err := r.ensureNoInternalEngineComponent(ctx, mce,
@@ -1098,7 +1105,7 @@ func (r *MultiClusterEngineReconciler) ensureNoHyperShift(ctx context.Context,
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.HyperShift, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -1118,7 +1125,7 @@ func (r *MultiClusterEngineReconciler) ensureNoHyperShift(ctx context.Context,
 	return ctrl.Result{}, nil
 }
 
-func (r *MultiClusterEngineReconciler) reconcileHypershiftLocalHosting(ctx context.Context, mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+func (r *MultiClusterEngineReconciler) reconcileHypershiftLocalHosting(ctx context.Context, mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 	addon, err := renderer.RenderHypershiftAddon(mce)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -1252,7 +1259,7 @@ func (r *MultiClusterEngineReconciler) removeHypershiftLocalHosting(ctx context.
 }
 
 func (r *MultiClusterEngineReconciler) ensureClusterProxyAddon(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "cluster-proxy-addon-manager", Namespace: mce.Spec.TargetNamespace}
 	r.StatusManager.AddComponent(toggle.EnabledStatus(namespacedName))
@@ -1269,7 +1276,7 @@ func (r *MultiClusterEngineReconciler) ensureClusterProxyAddon(ctx context.Conte
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ClusterProxyAddon, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -1305,7 +1312,7 @@ func (r *MultiClusterEngineReconciler) ensureClusterProxyAddon(ctx context.Conte
 }
 
 func (r *MultiClusterEngineReconciler) ensureNoClusterProxyAddon(ctx context.Context,
-	mce *backplanev1.MultiClusterEngine) (ctrl.Result, error) {
+	mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (ctrl.Result, error) {
 
 	namespacedName := types.NamespacedName{Name: "cluster-proxy-addon-manager", Namespace: mce.Spec.TargetNamespace}
 	r.StatusManager.RemoveComponent(toggle.EnabledStatus(namespacedName))
@@ -1322,7 +1329,7 @@ func (r *MultiClusterEngineReconciler) ensureNoClusterProxyAddon(ctx context.Con
 
 	// Renders all templates from charts
 	chartPath := r.fetchChartOrCRDPath(backplanev1.ClusterProxyAddon, false)
-	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides)
+	templates, errs := renderer.RenderChart(chartPath, mce, r.CacheSpec.ImageOverrides, r.CacheSpec.TemplateOverrides, isSTSEnabled)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -1379,7 +1386,7 @@ func (r *MultiClusterEngineReconciler) CheckConsole(ctx context.Context) (bool, 
 	return false, nil
 }
 
-func (r *MultiClusterEngineReconciler) ensureLocalCluster(ctx context.Context, mce *backplanev1.MultiClusterEngine) (
+func (r *MultiClusterEngineReconciler) ensureLocalCluster(ctx context.Context, mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (
 	ctrl.Result, error) {
 
 	if utils.IsUnitTest() {
@@ -1511,7 +1518,7 @@ func (r *MultiClusterEngineReconciler) ensureLocalCluster(ctx context.Context, m
 	return ctrl.Result{}, err
 }
 
-func (r *MultiClusterEngineReconciler) ensureNoLocalCluster(ctx context.Context, mce *backplanev1.MultiClusterEngine) (
+func (r *MultiClusterEngineReconciler) ensureNoLocalCluster(ctx context.Context, mce *backplanev1.MultiClusterEngine, isSTSEnabled bool) (
 	ctrl.Result, error) {
 
 	if utils.IsUnitTest() {

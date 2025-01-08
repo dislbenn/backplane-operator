@@ -81,7 +81,7 @@ func TestEnsureLocalCluster(t *testing.T) {
 	ctx := context.Background()
 	mce := &mcev1.MultiClusterEngine{}
 
-	result, err := r.ensureLocalCluster(ctx, mce)
+	result, err := r.ensureLocalCluster(ctx, mce, false)
 
 	if err != nil {
 		t.Errorf("r.ensureLocalCluster err: expected nil, got %s", err)
@@ -110,7 +110,7 @@ func TestEnsureNoLocalCluster1(t *testing.T) {
 	ctx := context.Background()
 	mce := &mcev1.MultiClusterEngine{}
 
-	result, err := r.ensureNoLocalCluster(ctx, mce)
+	result, err := r.ensureNoLocalCluster(ctx, mce, false)
 
 	if err != nil {
 		t.Errorf("r.ensureLocalCluster err: expected nil, got %s", err)
@@ -148,7 +148,7 @@ func TestEnsureNoLocalCluster2(t *testing.T) {
 
 	r := newMCER(cl)
 
-	result, err := r.ensureNoLocalCluster(ctx, mce)
+	result, err := r.ensureNoLocalCluster(ctx, mce, false)
 	if err != nil {
 		t.Errorf("r.ensureLocalCluster err: expected nil, got %s", err)
 	}
@@ -156,7 +156,7 @@ func TestEnsureNoLocalCluster2(t *testing.T) {
 		t.Errorf("r.ensureLocalCluster result: expected %#v, got %#v", requeueResult, result)
 	}
 
-	result, err = r.ensureNoLocalCluster(ctx, mce)
+	result, err = r.ensureNoLocalCluster(ctx, mce, false)
 
 	if err != nil {
 		t.Errorf("r.ensureLocalCluster err: expected nil, got %s", err)

@@ -42,6 +42,10 @@ regenerate-charts: ## Regenerates the charts
 	pip3 install -r hack/bundle-automation/chart-requirements.txt
 	python3 ./hack/bundle-automation/generate-shell.py --update-charts --org $(ORG) --repo $(REPO) --branch $(BRANCH)
 
+copy-charts: ## Regenerates the operator bundles
+	pip3 install -r hack/bundle-automation/requirements.txt
+	python3 ./hack/bundle-automation/generate-shell.py --copy-charts --org $(ORG) --repo $(REPO) --branch $(BRANCH)
+
 catalog-deploy: ## Deploys backplane operator via subscription
 	IMG="${IMAGE_TAG_BASE}-catalog:v${VERSION}" yq eval -i '.spec.image = env(IMG)' hack/catalog/catalogsource.yaml
 	oc create ns backplane-operator-system --dry-run=client -o yaml | oc apply -f -

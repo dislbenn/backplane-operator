@@ -99,7 +99,7 @@ func TestRender(t *testing.T) {
 
 	// multiple charts
 	chartsDir := chartsDir
-	templates, errs := RenderCharts(chartsDir, testBackplane, testImages, templateOverrides)
+	templates, errs := RenderCharts(chartsDir, testBackplane, testImages, templateOverrides, false)
 	if len(errs) > 0 {
 		for _, err := range errs {
 			t.Logf(err.Error())
@@ -198,7 +198,7 @@ func TestRender(t *testing.T) {
 	}
 
 	chartsPath := chartsPath
-	singleChartTemplates, errs := RenderChart(chartsPath, testBackplane, singleChartTestImages, templateOverrides)
+	singleChartTemplates, errs := RenderChart(chartsPath, testBackplane, singleChartTestImages, templateOverrides, false)
 
 	if len(errs) > 0 {
 		for _, err := range errs {
@@ -349,7 +349,7 @@ func TestNonOCPRender(t *testing.T) {
 
 	// multiple charts
 	chartsDir := chartsDir
-	templates, errs := RenderCharts(chartsDir, testBackplane, testImages, templateOverrides)
+	templates, errs := RenderCharts(chartsDir, testBackplane, testImages, templateOverrides, false)
 	if len(errs) > 0 {
 		for _, err := range errs {
 			t.Logf(err.Error())
@@ -448,7 +448,7 @@ func TestNonOCPRender(t *testing.T) {
 	}
 
 	chartsPath := chartsPath
-	singleChartTemplates, errs := RenderChart(chartsPath, testBackplane, singleChartTestImages, templateOverrides)
+	singleChartTemplates, errs := RenderChart(chartsPath, testBackplane, singleChartTestImages, templateOverrides, false)
 
 	if len(errs) > 0 {
 		for _, err := range errs {

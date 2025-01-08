@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	ocopv1 "github.com/openshift/api/operator/v1"
 	apixv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -123,6 +124,40 @@ var _ = Describe("BackplaneConfig controller", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "testsecret",
 				Namespace: DestinationNamespace,
+			},
+		})).To(Succeed())
+	})
+
+	JustBeforeEach(func() {
+		Expect(k8sClient.Create(context.Background(), &configv1.Authentication{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "cluster",
+			},
+			Spec: configv1.AuthenticationSpec{
+				ServiceAccountIssuer: "",
+			},
+		})).To(Succeed())
+
+		Expect(k8sClient.Create(context.Background(), &ocopv1.CloudCredential{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "cluster",
+			},
+			Spec: ocopv1.CloudCredentialSpec{
+				CredentialsMode: "",
+				OperatorSpec: ocopv1.OperatorSpec{
+					ManagementState: "Managed",
+				},
+			},
+		})).To(Succeed())
+
+		Expect(k8sClient.Create(context.Background(), &configv1.Infrastructure{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "cluster",
+			},
+			Spec: configv1.InfrastructureSpec{
+				PlatformSpec: configv1.PlatformSpec{
+					Type: "AWS",
+				},
 			},
 		})).To(Succeed())
 	})
@@ -373,12 +408,6 @@ var _ = Describe("BackplaneConfig controller", func() {
 				ResourceType:   &backplanev1.MultiClusterEngine{},
 				Expected:       nil,
 			},
-			// {
-			// 	Name:           "MCEConsole",
-			// 	NamespacedName: types.NamespacedName{Name: "console-mce-console", Namespace: DestinationNamespace},
-			// 	ResourceType:   &appsv1.Deployment{},
-			// 	Expected:       nil,
-			// },
 		}
 		log.Info("----- TEST CASE -----")
 	})
@@ -462,7 +491,7 @@ var _ = Describe("BackplaneConfig controller", func() {
 				Eventually(k8sClient.Get(ctx, types.NamespacedName{Name: "internalenginecomponents.multicluster.openshift.io"}, iecCRD)).Should(Succeed())
 
 				By("ensuring togglable components")
-				_, err := reconciler.ensureToggleableComponents(ctx, backplaneConfig)
+				_, err := reconciler.ensureToggleableComponents(ctx, backplaneConfig, false)
 				Expect(err).To(BeNil())
 
 				By("ensuring each enabled component's CR is created")
@@ -633,7 +662,7 @@ var _ = Describe("BackplaneConfig controller", func() {
 				Eventually(k8sClient.Get(ctx, types.NamespacedName{Name: "internalenginecomponents.multicluster.openshift.io"}, iecCRD)).Should(Succeed())
 
 				By("ensuring togglable components")
-				_, err := reconciler.ensureToggleableComponents(ctx, backplaneConfig)
+				_, err := reconciler.ensureToggleableComponents(ctx, backplaneConfig, false)
 				Expect(err).To(BeNil())
 
 				By("ensuring each enabled component's CR is created")
@@ -906,7 +935,7 @@ var _ = Describe("BackplaneConfig controller", func() {
 				Eventually(k8sClient.Get(ctx, types.NamespacedName{Name: "internalenginecomponents.multicluster.openshift.io"}, iecCRD)).Should(Succeed())
 
 				By("ensuring togglable components")
-				_, err := reconciler.ensureToggleableComponents(ctx, backplaneConfig)
+				_, err := reconciler.ensureToggleableComponents(ctx, backplaneConfig, false)
 				Expect(err).To(BeNil())
 
 				By("ensuring each enabled component's CR is created")
@@ -1010,7 +1039,7 @@ var _ = Describe("BackplaneConfig controller", func() {
 				Eventually(k8sClient.Get(ctx, types.NamespacedName{Name: "internalenginecomponents.multicluster.openshift.io"}, iecCRD)).Should(Succeed())
 
 				By("ensuring togglable components")
-				_, err := reconciler.ensureToggleableComponents(ctx, backplaneConfig)
+				_, err := reconciler.ensureToggleableComponents(ctx, backplaneConfig, false)
 				Expect(err).To(BeNil())
 
 				By("ensuring each enabled component's CR is created")
@@ -1118,17 +1147,17 @@ var _ = Describe("BackplaneConfig controller", func() {
 				}
 				createCtx := context.Background()
 				Expect(k8sClient.Create(createCtx, backplaneConfig)).Should(Succeed())
-				_, err := reconciler.ensureNoClusterManager(createCtx, backplaneConfig)
+				_, err := reconciler.ensureNoClusterManager(createCtx, backplaneConfig, false)
 				Expect(err).To(BeNil())
-				_, err = reconciler.ensureNoClusterLifecycle(createCtx, backplaneConfig)
+				_, err = reconciler.ensureNoClusterLifecycle(createCtx, backplaneConfig, false)
 				Expect(err).To(BeNil())
-				_, err = reconciler.ensureNoManagedServiceAccount(createCtx, backplaneConfig)
+				_, err = reconciler.ensureNoManagedServiceAccount(createCtx, backplaneConfig, false)
 				Expect(err).To(BeNil())
-				_, err = reconciler.ensureNoHive(createCtx, backplaneConfig)
+				_, err = reconciler.ensureNoHive(createCtx, backplaneConfig, false)
 				Expect(err).To(BeNil())
-				_, err = reconciler.ensureNoHyperShift(createCtx, backplaneConfig)
+				_, err = reconciler.ensureNoHyperShift(createCtx, backplaneConfig, false)
 				Expect(err).To(BeNil())
-				_, err = reconciler.ensureNoServerFoundation(createCtx, backplaneConfig)
+				_, err = reconciler.ensureNoServerFoundation(createCtx, backplaneConfig, false)
 				Expect(err).To(BeNil())
 
 				By("ensuring each deployment and config is created")
@@ -1624,6 +1653,7 @@ var _ = Describe("BackplaneConfig controller", func() {
 func registerScheme() {
 	backplanev1.AddToScheme(scheme.Scheme)
 	configv1.AddToScheme(scheme.Scheme)
+	ocopv1.AddToScheme(scheme.Scheme)
 }
 
 func Test_getComponentConfig(t *testing.T) {
@@ -2142,7 +2172,7 @@ func Test_finalizeBackplaneConfig(t *testing.T) {
 			}
 
 			// Should fail since local-cluster namespace has not been deleted
-			if _, err := recon.finalizeBackplaneConfig(context.TODO(), tt.mce); err == nil {
+			if _, err := recon.finalizeBackplaneConfig(context.TODO(), tt.mce, false); err == nil {
 				t.Errorf("finalizeBackplaneConfig(context.TODO(), tt.mce) expected error, got: %v", err)
 			}
 
@@ -2151,8 +2181,140 @@ func Test_finalizeBackplaneConfig(t *testing.T) {
 			}
 
 			// Should fail since local-cluster namespace has not been deleted
-			if _, err := recon.finalizeBackplaneConfig(context.TODO(), tt.mce); err != nil {
+			if _, err := recon.finalizeBackplaneConfig(context.TODO(), tt.mce, false); err != nil {
 				t.Errorf("failed to finalize Backplane config: %v", err)
+			}
+		})
+	}
+}
+
+func Test_ensureAuthenticationIssuerNotEmpty(t *testing.T) {
+	tests := []struct {
+		name string
+		auth *configv1.Authentication
+		want bool
+	}{
+		{
+			name: "should ensure authentication issuer is not empty",
+			auth: &configv1.Authentication{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       configv1.AuthenticationSpec{ServiceAccountIssuer: "foo"},
+			},
+			want: true,
+		},
+		{
+			name: "should ensure authentication issuer is empty",
+			auth: &configv1.Authentication{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       configv1.AuthenticationSpec{ServiceAccountIssuer: ""},
+			},
+			want: false,
+		},
+	}
+
+	registerScheme()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				stsEnabledStatus = true
+				recon.Client.Delete(context.TODO(), tt.auth)
+			}()
+
+			if err := recon.Client.Create(context.TODO(), tt.auth); err != nil {
+				t.Errorf("failed to create authentication resource: %v", err)
+			}
+
+			_, authOk, _ := recon.ensureAuthenticationIssuerNotEmpty(context.TODO())
+			if authOk != tt.want {
+				t.Errorf("ensureInfrastructureAWS(ctx) = %v, want %v", authOk, tt.want)
+			}
+		})
+	}
+}
+
+func Test_ensureCloudCredentialModeManual(t *testing.T) {
+	tests := []struct {
+		name      string
+		cloudCred *ocopv1.CloudCredential
+		want      bool
+	}{
+		{
+			name: "should ensure cloud credential is Manual",
+			cloudCred: &ocopv1.CloudCredential{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       ocopv1.CloudCredentialSpec{CredentialsMode: "Manual"},
+			},
+			want: true,
+		},
+		{
+			name: "should ensure cloud credential is not Manual",
+			cloudCred: &ocopv1.CloudCredential{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       ocopv1.CloudCredentialSpec{CredentialsMode: ""},
+			},
+			want: false,
+		},
+	}
+
+	registerScheme()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				stsEnabledStatus = true
+				recon.Client.Delete(context.TODO(), tt.cloudCred)
+			}()
+
+			if err := recon.Client.Create(context.TODO(), tt.cloudCred); err != nil {
+				t.Errorf("failed to create authentication resource: %v", err)
+			}
+
+			_, cloudCredOK, _ := recon.ensureCloudCredentialModeManual(context.TODO())
+			if cloudCredOK != tt.want {
+				t.Errorf("ensureInfrastructureAWS(ctx) = %v, want %v", cloudCredOK, tt.want)
+			}
+		})
+	}
+}
+
+func Test_ensureInfrastructureAWS(t *testing.T) {
+	tests := []struct {
+		name  string
+		infra *configv1.Infrastructure
+		want  bool
+	}{
+		{
+			name: "should ensure infrastructure is AWS",
+			infra: &configv1.Infrastructure{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       configv1.InfrastructureSpec{PlatformSpec: configv1.PlatformSpec{Type: "AWS"}},
+			},
+			want: true,
+		},
+		{
+			name: "should ensure infrastructure is not AWS",
+			infra: &configv1.Infrastructure{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       configv1.InfrastructureSpec{PlatformSpec: configv1.PlatformSpec{Type: "Azure"}},
+			},
+			want: false,
+		},
+	}
+
+	registerScheme()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				stsEnabledStatus = true
+				recon.Client.Delete(context.TODO(), tt.infra)
+			}()
+
+			if err := recon.Client.Create(context.TODO(), tt.infra); err != nil {
+				t.Errorf("failed to create authentication resource: %v", err)
+			}
+
+			_, infraOk, _ := recon.ensureInfrastructureAWS(context.TODO())
+			if infraOk != tt.want {
+				t.Errorf("ensureInfrastructureAWS(ctx) = %v, want %v", infraOk, tt.want)
 			}
 		})
 	}

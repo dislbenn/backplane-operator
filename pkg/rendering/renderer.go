@@ -47,6 +47,7 @@ type Global struct {
 }
 
 type HubConfig struct {
+	ClusterSTSEnabled    bool              `json:"clusterSTSEnabled" structs:"clusterSTSEnabled"`
 	NodeSelector         map[string]string `json:"nodeSelector" structs:"nodeSelector"`
 	ProxyConfigs         map[string]string `json:"proxyConfigs" structs:"proxyConfigs"`
 	ReplicaCount         int               `json:"replicaCount" structs:"replicaCount"`
@@ -196,7 +197,7 @@ func RenderCRDs(crdDir string, backplaneConfig *v1.MultiClusterEngine) ([]*unstr
 }
 
 func RenderCharts(chartDir string, backplaneConfig *v1.MultiClusterEngine, images map[string]string,
-	templateOverrides map[string]string) ([]*unstructured.Unstructured, []error) {
+	templateOverrides map[string]string, isSTSEnabled bool) ([]*unstructured.Unstructured, []error) {
 
 	log := log.Log.WithName("reconcile")
 	var templates []*unstructured.Unstructured
@@ -213,7 +214,7 @@ func RenderCharts(chartDir string, backplaneConfig *v1.MultiClusterEngine, image
 
 	for _, chart := range charts {
 		chartPath := filepath.Join(chartDir, chart.Name())
-		chartTemplates, errs := renderTemplates(chartPath, backplaneConfig, images, templateOverrides)
+		chartTemplates, errs := renderTemplates(chartPath, backplaneConfig, images, templateOverrides, isSTSEnabled)
 
 		if len(errs) > 0 {
 			for _, err := range errs {
@@ -227,7 +228,7 @@ func RenderCharts(chartDir string, backplaneConfig *v1.MultiClusterEngine, image
 }
 
 func RenderChart(chartPath string, backplaneConfig *v1.MultiClusterEngine, images map[string]string,
-	templates map[string]string) ([]*unstructured.Unstructured, []error) {
+	templates map[string]string, isSTSEnabled bool) ([]*unstructured.Unstructured, []error) {
 
 	log := log.Log.WithName("reconcile")
 	errs := []error{}
@@ -235,7 +236,7 @@ func RenderChart(chartPath string, backplaneConfig *v1.MultiClusterEngine, image
 		chartPath = path.Join(val, chartPath)
 	}
 
-	chartTemplates, errs := renderTemplates(chartPath, backplaneConfig, images, templates)
+	chartTemplates, errs := renderTemplates(chartPath, backplaneConfig, images, templates, isSTSEnabled)
 	if len(errs) > 0 {
 		for _, err := range errs {
 			log.Info(err.Error())
@@ -248,15 +249,16 @@ func RenderChart(chartPath string, backplaneConfig *v1.MultiClusterEngine, image
 
 // RenderChartWithNamespace wraps the RenderChart function, overriding the target namespace
 func RenderChartWithNamespace(chartPath string, backplaneConfig *v1.MultiClusterEngine,
-	images map[string]string, templates map[string]string, namespace string) ([]*unstructured.Unstructured, []error) {
+	images map[string]string, templates map[string]string, namespace string, isSTSEnabled bool) (
+	[]*unstructured.Unstructured, []error) {
 
 	mce := backplaneConfig.DeepCopy()
 	mce.Spec.TargetNamespace = namespace
-	return RenderChart(chartPath, mce, images, templates)
+	return RenderChart(chartPath, mce, images, templates, isSTSEnabled)
 }
 
 func renderTemplates(chartPath string, backplaneConfig *v1.MultiClusterEngine, images map[string]string,
-	templateOverrides map[string]string) ([]*unstructured.Unstructured, []error) {
+	templateOverrides map[string]string, isSTSEnabled bool) ([]*unstructured.Unstructured, []error) {
 
 	log := log.Log.WithName("reconcile")
 	var templates []*unstructured.Unstructured
@@ -269,7 +271,7 @@ func renderTemplates(chartPath string, backplaneConfig *v1.MultiClusterEngine, i
 	}
 
 	valuesYaml := &Values{}
-	injectValuesOverrides(valuesYaml, backplaneConfig, images, templateOverrides)
+	injectValuesOverrides(valuesYaml, backplaneConfig, images, templateOverrides, isSTSEnabled)
 	helmEngine := engine.Engine{
 		Strict:   true,
 		LintMode: false,
@@ -317,7 +319,7 @@ func renderTemplates(chartPath string, backplaneConfig *v1.MultiClusterEngine, i
 }
 
 func injectValuesOverrides(values *Values, backplaneConfig *v1.MultiClusterEngine, images map[string]string,
-	templates map[string]string) {
+	templates map[string]string, isSTSEnabled bool) {
 
 	values.Global.ImageOverrides = images
 
@@ -351,6 +353,9 @@ func injectValuesOverrides(values *Values, backplaneConfig *v1.MultiClusterEngin
 			values.Global.ConfigSecret = secretNN.Name
 		}
 	}
+
+	values.HubConfig.ClusterSTSEnabled = isSTSEnabled
+
 	values.HubConfig.ReplicaCount = utils.DefaultReplicaCount(backplaneConfig)
 
 	values.HubConfig.NodeSelector = backplaneConfig.Spec.NodeSelector

@@ -66,7 +66,7 @@ func Test_reconcileLocalHosting(t *testing.T) {
 	}
 
 	// Hypershift not enabled
-	_, _ = r.reconcileHypershiftLocalHosting(ctx, mce)
+	_, _ = r.reconcileHypershiftLocalHosting(ctx, mce, false)
 	mceStatus := r.StatusManager.ReportStatus(*mce)
 	component := getComponent(mceStatus.Components, "hypershift-addon")
 	if component.Type != "NotPresent" || component.Status != metav1.ConditionTrue || component.Reason != status.ComponentDisabledReason {
@@ -78,7 +78,7 @@ func Test_reconcileLocalHosting(t *testing.T) {
 	mce.Spec.Overrides.Components = []backplanev1.ComponentConfig{
 		{Name: backplanev1.HypershiftLocalHosting, Enabled: false},
 	}
-	_, _ = r.reconcileHypershiftLocalHosting(ctx, mce)
+	_, _ = r.reconcileHypershiftLocalHosting(ctx, mce, false)
 	mceStatus = r.StatusManager.ReportStatus(*mce)
 	component = getComponent(mceStatus.Components, "hypershift-addon")
 	if component.Type != "NotPresent" || component.Status != metav1.ConditionTrue || component.Reason != status.ComponentDisabledReason {
@@ -92,7 +92,7 @@ func Test_reconcileLocalHosting(t *testing.T) {
 		{Name: backplanev1.HyperShift, Enabled: true},
 		{Name: backplanev1.LocalCluster, Enabled: true},
 	}
-	_, _ = r.reconcileHypershiftLocalHosting(ctx, mce)
+	_, _ = r.reconcileHypershiftLocalHosting(ctx, mce, false)
 	mceStatus = r.StatusManager.ReportStatus(*mce)
 	component = getComponent(mceStatus.Components, "hypershift-addon")
 	if component.Reason != status.WaitingForResourceReason {
@@ -121,7 +121,7 @@ func Test_reconcileLocalHosting(t *testing.T) {
 	}
 
 	// reconcile is not successful likely due to Server-Side Apply
-	_, _ = r.reconcileHypershiftLocalHosting(ctx, mce)
+	_, _ = r.reconcileHypershiftLocalHosting(ctx, mce, false)
 	mceStatus = r.StatusManager.ReportStatus(*mce)
 	component = getComponent(mceStatus.Components, "hypershift-addon")
 	if component.Type != "Available" {

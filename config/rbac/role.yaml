@@ -1798,6 +1798,15 @@ rules:
 - apiGroups:
   - config.openshift.io
   resources:
+  - authentications
+  - infrastructures
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - config.openshift.io
+  resources:
   - clusteroperators
   verbs:
   - get
@@ -2771,6 +2780,17 @@ rules:
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - operator.openshift.io
+  resources:
+  - cloudcredentials
+  - consoles
+  verbs:
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - operator.openshift.io
