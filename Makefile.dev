@@ -28,19 +28,27 @@ upstream-install: ## Installs the upstream Backplane Operator by deploying a Cat
 
 lint-operator-bundles: ## Lints the operator bundles
 	pip3 install -r hack/bundle-automation/requirements.txt
-	python3 ./hack/bundle-automation/generate-shell.py --lint-bundles --org $(ORG) --repo $(REPO) --branch $(BRANCH)
+	python3 ./hack/bundle-automation/generate-shell.py --lint-olm-bundles-to-helm-charts --org $(ORG) --repo $(REPO) --branch $(BRANCH)
 
 regenerate-charts-from-bundles: ## Regenerates the operator charts from bundles
 	pip3 install -r hack/bundle-automation/requirements.txt
-	python3 ./hack/bundle-automation/generate-shell.py --update-charts-from-bundles --org $(ORG) --repo $(REPO) --branch $(BRANCH)
+	python3 ./hack/bundle-automation/generate-shell.py --olm-bundles-to-helm-charts --org $(ORG) --repo $(REPO) --branch $(BRANCH)
 
 regenerate-operator-sha-commits: ## Regenerates the operator bundles
 	pip3 install -r hack/bundle-automation/requirements.txt
-	python3 ./hack/bundle-automation/generate-shell.py --update-commits --org $(ORG) --repo $(REPO) --branch $(BRANCH) --pipeline-repo $(PIPELINE_REPO) --pipeline-branch $(PIPELINE_BRANCH)
+	python3 ./hack/bundle-automation/generate-shell.py --sync-sha-commits --org $(ORG) --repo $(REPO) --branch $(BRANCH) --pipeline-repo $(PIPELINE_REPO) --pipeline-branch $(PIPELINE_BRANCH)
 
 regenerate-charts: ## Regenerates the charts 
 	pip3 install -r hack/bundle-automation/chart-requirements.txt
-	python3 ./hack/bundle-automation/generate-shell.py --update-charts --org $(ORG) --repo $(REPO) --branch $(BRANCH)
+	python3 ./hack/bundle-automation/generate-shell.py --helm-to-customized-helm-charts --org $(ORG) --repo $(REPO) --branch $(BRANCH)
+
+copy-helm-charts: ## Regenerates the operator bundles
+	pip3 install -r hack/bundle-automation/requirements.txt
+	python3 ./hack/bundle-automation/generate-shell.py --copy-helm-charts --org $(ORG) --repo $(REPO) --branch $(BRANCH)
+
+onboard-new-component: ## Onboards new component configuration into MCE
+	pip3 install -r hack/bundle-automation/chart-requirements.txt
+	python3 ./hack/bundle-automation/generate-shell.py --onboard-new-components --org $(ORG) --repo $(REPO) --branch $(BRANCH)
 
 catalog-deploy: ## Deploys backplane operator via subscription
 	IMG="${IMAGE_TAG_BASE}-catalog:v${VERSION}" yq eval -i '.spec.image = env(IMG)' hack/catalog/catalogsource.yaml

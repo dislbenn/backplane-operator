@@ -7,37 +7,119 @@ import argparse
 import coloredlogs
 import os
 import logging
+import subprocess
 import shutil
 import sys
 import time
-
+from pathlib import Path
 from git import Repo, exc
 
 # Configure logging with coloredlogs
 coloredlogs.install(level='DEBUG')  # Set the logging level as needed
 
+TMP_DIR = Path(__file__).resolve().parent / "tmp/dev-tools"
+SCRIPTS_DIR = TMP_DIR / "scripts"
+DEST_DIR = Path(__file__).resolve().parent
+SUPPORTED_OPERATIONS = {
+    "copy-helm-charts": {
+        "script": "bundle-generation/copy-helm-charts.py",
+        "args": "--destination pkg/templates/",
+    },
+    "helm-to-customized-helm-charts": {
+        "script": "bundle-generation/helm-to-customized-helm-charts.py",
+        "args": "--destination pkg/templates/",
+    },
+    "lint-olm-bundles-to-helm-charts": {
+        "script": "./bundle-generation/olm-bundles-to-helm-charts.py",
+        "args": "--destination pkg/templates/",
+    },
+    "olm-bundles-to-helm-charts": {
+        "script": "./bundle-generation/olm-bundles-to-helm-charts.py",
+        "args": "--destination pkg/templates/",
+    },
+    "onboard-new-components": {
+        "script": "onboard-new-components.py",
+        "args": "",
+    },
+    "sync-sha-commits": {
+        "script": "./bundle-generation/sync-sha-commits.py",
+        "args": "--repo {pipeline_repo} --branch {pipeline_branch}",
+    },
+}
+
 def clone_repository(git_url, repo_path, branch):
+    """Clones a Git repository to a specific path."""
     if os.path.exists(repo_path):
         logging.warning(f"Repository path: {repo_path} already exists. Removing existing directory.")
         shutil.rmtree(repo_path)
 
-    logging.info(f"Cloning Git repository: {git_url} (branch={branch}) to {repo_path}")
+    logging.info(f"Cloning repository: {git_url} (branch={branch}) to {repo_path}")
     try:
         repository = Repo.clone_from(git_url, repo_path)
         repository.git.checkout(branch)
         logging.info(f"Git repository: {git_url} successfully cloned.")
 
     except Exception as e:
-        logging.error(f"Failed to clone Git repository: {git_url} (branch={branch}): {e}.")
+        logging.error(f"Failed to clone repository: {git_url} (branch={branch}): {e}")
         raise
 
-def prepare_operation(script_dir, operation_script, operation_args):
-    shutil.copy(os.path.join(os.path.dirname(os.path.realpath(__file__)), f"{script_dir}/{operation_script}"), os.path.join(os.path.dirname(os.path.realpath(__file__)), operation_script))
-    exit_code = os.system("python3 " + os.path.dirname(os.path.realpath(__file__)) +  f"/{operation_script} {operation_args}")
-    if exit_code != 0:
+def copy_scripts(script_dependencies):
+    """Copies necessary scripts from the temporary directory."""
+    for script in script_dependencies:
+        src = SCRIPTS_DIR / script
+        dest = DEST_DIR / Path(script).name
+
+        if not src.exists():
+            logging.error(f"Required script {src} not found.")
+            sys.exit(1)
+
+        shutil.copy(src, dest)
+        logging.debug(f"Copied {src} to {dest}")
+
+def cleanup_scripts(script_dependencies):
+    """Cleans up copied scripts from the destination directory."""
+    for script in script_dependencies:
+        dest = DEST_DIR / script
+        if dest.exists():
+            dest.unlink(missing_ok=True)
+            logging.debug(f"Removed {dest}")
+
+
+def prepare_and_execute(operation, operation_data, args):
+    """Prepares and executes the operation based on the provided operation data."""
+    script = Path(operation_data["script"])
+    script_dependencies = [script, "common.py"]
+    copy_scripts(script_dependencies)
+
+    operations_args = operation_data.get("args", "")
+    if "args" in operation_data:
+        operations_args = operation_data.get("args").format(
+            pipeline_repo=args.pipeline_repo,
+            pipeline_branch=args.pipeline_branch,
+        )
+
+    # Execute the script
+    execute_script(script, operations_args)
+
+    # Clean up the copied scripts
+    cleanup_scripts(script_dependencies)
+
+def execute_script(script, args):
+    """Executes a Python script with arguments."""
+    script_path = DEST_DIR / Path(script).name
+
+    if not script_path.exists():
+        logging.error(f"Script {script_path} not found.")
         sys.exit(1)
 
-    os.remove(os.path.join(os.path.dirname(os.path.realpath(__file__)), f"{operation_script}"))
+    command = ["python3", str(script_path)] + args.split()
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Script {script} failed with exit code {e.returncode}")
+        sys.exit(e.returncode)
+    finally:
+        script_path.unlink(missing_ok=True)  # Clean up after execution
 
 def main(args):
     logging.basicConfig(level=logging.INFO)
@@ -45,70 +127,17 @@ def main(args):
     start_time = time.time()  # Record start time
     logging.info("🔄 Initiating the generate-shell script for operator bundle management and updates.")
 
-    # Extract org, repo, branch, pipeline_repo, and pipeline_branch from command-line arguments
-    # Use the specified org and branch or the defaults ('stolostron', 'installer-dev-tools', 'main', 'bacplane-pipeline', '2.7-integration')
-    org = args.org
-    repo = args.repo
-    branch = args.branch
-    pipeline_repo = args.pipeline_repo
-    pipeline_branch = args.pipeline_branch
+    # Clone the repository
+    git_url = f"https://github.com/{args.org}/{args.repo}.git"
+    clone_repository(git_url, TMP_DIR, args.branch)
 
-    # Define the destination path for the cloned repository
-    repo_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tmp/dev-tools")
+    for operation, operation_data in SUPPORTED_OPERATIONS.items():
+        if getattr(args, operation.replace("-", "_"), False):
+            logging.info(f"Executing operation: {operation}")
+            prepare_and_execute(operation, operation_data, args)
+            break
 
-    # Clone the repository using the specified git_url, destination path, and branch
-    git_url = f"https://github.com/{org}/{repo}.git"
-    clone_repository(git_url, repo_path, branch)
-
-    # Define the directory containing the bundle generation scripts
-    script_dir = "tmp/dev-tools/bundle-generation"
-
-    # Check which operation is requested based on command-line arguments
-    if args.lint_bundles:
-        logging.info("Starting linting for bundles...")
-        operation_script = "bundles-to-charts.py"
-        operation_args = "--lint --destination pkg/templates/"
-
-        prepare_operation(script_dir, operation_script, operation_args)
-        logging.info("✔️ Bundles linted successfully.")
-
-    elif args.update_charts_from_bundles:
-        logging.info("Updating operator charts from bundles...")
-        operation_script = "bundles-to-charts.py"
-        operation_args = "--destination pkg/templates/"
-
-        prepare_operation(script_dir, operation_script, operation_args)
-        logging.info("✔️ Bundles updated successfully.")
-
-    elif args.update_charts:
-        logging.info("Updating operator charts...")
-        operation_script = "generate-charts.py"
-        operation_args = "--destination pkg/templates/"
-
-        prepare_operation(script_dir, operation_script, operation_args)
-        logging.info("✔️ Bundles updated successfully.")
-
-    elif args.copy_charts:
-        logging.info("Copying charts...")
-        operation_script = "move-charts.py"
-        operation_args = "--destination pkg/templates/"
-
-        prepare_operation(script_dir, operation_script, operation_args)
-        logging.info("✔️ Bundles updated successfully.")
-
-    elif args.update_commits:
-        logging.info("Updating commit SHAs...")
-        operation_script = "generate-sha-commits.py"
-        operation_args = f"--repo {pipeline_repo} --branch {pipeline_branch}"
-
-        prepare_operation(script_dir, operation_script, operation_args)
-        logging.info("✔️ Commit SHAs updated successfully.")
-
-    else:
-        logging.warning("⚠️ No operation specified.")
-
-    # Record the end time and log the duration of the script execution
-    end_time = time.time()
+    end_time = time.time() # Record the end time and log the duration of the script execution
     logging.info(f"Script execution took {end_time - start_time:.2f} seconds.")
 
 if __name__ == "__main__":
@@ -116,12 +145,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Define command-line arguments and their help descriptions
-    parser.add_argument("--lint-bundles", action="store_true", help="Perform linting for operator bundles")
-    parser.add_argument("--update-charts-from-bundles", action="store_true", help="Regenerate operator charts from bundles")
-    parser.add_argument("--update-commits", action="store_true", help="Regenerate operator bundles with commit SHA")
-    parser.add_argument("--update-charts", action="store_true", help="Regenerate operator charts")
-    parser.add_argument("--copy-charts", action="store_true", help="Copy operator charts")
+    for operation in SUPPORTED_OPERATIONS:
+        parser.add_argument(
+            f"--{operation}",
+            action="store_true",
+            help=f"Perform {operation.replace('-', ' ')}",
+        )
 
+    # Command-Line Arguments
     parser.add_argument("--org", help="GitHub Org name")
     parser.add_argument("--repo", help="Github Repo name")
     parser.add_argument("--branch", help="Github Repo Branch name")
