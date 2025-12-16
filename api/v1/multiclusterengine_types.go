@@ -124,6 +124,8 @@ type Overrides struct {
 	// Provides optional configuration for components, the list of which can be found here: https://github.com/stolostron/backplane-operator/tree/main/docs/available-components.md
 	//+operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Component Configuration",xDescriptors={"urn:alm:descriptor:com.tectonic.ui:hidden"}
 	// +optional
+	// +listType=map
+	// +listMapKey=name
 	Components []ComponentConfig `json:"components,omitempty"`
 
 	// Namespace to install Assisted Installer operator

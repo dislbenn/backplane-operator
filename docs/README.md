@@ -2,7 +2,11 @@
 
 ### Override Image Values
 
-See [Overriding Images](override-images.md ) for details about modifying images at runtime
+See [Overriding Images](override-images.md) for details about modifying images at runtime
+
+### Enable/Disable MCE Components
+
+See [Patching Components](patching-components.md) for details about the correct way to enable or disable MCE components
 
 ### Disable MCE Operator
 
