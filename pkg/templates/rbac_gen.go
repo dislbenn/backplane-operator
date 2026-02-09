@@ -378,6 +378,7 @@ package main
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=delete;get;list;watch
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=delete;get;list;watch
 //+kubebuilder:rbac:groups=clusterview.open-cluster-management.io,resources=managedclusters;managedclustersets,verbs=list;get;watch
+//+kubebuilder:rbac:groups=clusterview.open-cluster-management.io,resources=userpermissions,verbs=get;list
 //+kubebuilder:rbac:groups=compute.azure.com,resources=diskaccesses/finalizers;diskaccesses/status;diskencryptionsets/finalizers;diskencryptionsets/status;disks/finalizers;disks/status;images/finalizers;images/status;snapshots/finalizers;snapshots/status;virtualmachines/finalizers;virtualmachines/status;virtualmachinescalesets/finalizers;virtualmachinescalesets/status;virtualmachinescalesetsextensions/finalizers;virtualmachinescalesetsextensions/status;virtualmachinesextensions/finalizers;virtualmachinesextensions/status,verbs=get;patch;update
 //+kubebuilder:rbac:groups=compute.azure.com,resources=diskaccesses/finalizers;diskaccesses/status;diskencryptionsets/finalizers;diskencryptionsets/status;disks/finalizers;disks/status;images/finalizers;images/status;snapshots/finalizers;snapshots/status;virtualmachines/finalizers;virtualmachines/status;virtualmachinescalesets/finalizers;virtualmachinescalesets/status;virtualmachinescalesetsextensions/finalizers;virtualmachinescalesetsextensions/status;virtualmachinesextensions/finalizers;virtualmachinesextensions/status,verbs=get;patch;update
 //+kubebuilder:rbac:groups=compute.azure.com,resources=diskaccesses;diskencryptionsets;disks;images;snapshots;virtualmachines;virtualmachinescalesets;virtualmachinescalesetsextensions;virtualmachinesextensions,verbs=create;delete;get;list;patch;update;watch
@@ -386,13 +387,13 @@ package main
 //+kubebuilder:rbac:groups=config.open-cluster-management.io,resources=klusterletconfigs,verbs=get;list;watch
 //+kubebuilder:rbac:groups=config.open-cluster-management.io,resources=klusterletconfigs,verbs=get;list;watch;create;update;delete;patch
 //+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
+//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers;proxies,verbs=get;list;watch
 //+kubebuilder:rbac:groups=config.openshift.io,resources=clusteroperators;clusterversions;dnses;infrastructures;proxies,verbs=get;list;watch
 //+kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions,verbs=get
 //+kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions,verbs=get;list
 //+kubebuilder:rbac:groups=config.openshift.io,resources=infrastructures,verbs=get
 //+kubebuilder:rbac:groups=config.openshift.io,resources=infrastructures,verbs=get;list;watch
 //+kubebuilder:rbac:groups=config.openshift.io,resources=infrastructures,verbs=get;list;watch;patch;update
-//+kubebuilder:rbac:groups=config.openshift.io,resources=proxies,verbs=get;list;watch
 //+kubebuilder:rbac:groups=config.openshift.io;console.openshift.io;project.openshift.io;tower.ansible.com,resources=infrastructures;consolelinks;projects;featuregates;ansiblejobs;clusterversions,verbs=list;get;watch
 //+kubebuilder:rbac:groups=console.open-cluster-management.io,resources=userpreferences,verbs=create;get;list;patch;watch
 //+kubebuilder:rbac:groups=console.openshift.io,resources=consoleclidownloads,verbs=get;list;create;delete;update;patch
