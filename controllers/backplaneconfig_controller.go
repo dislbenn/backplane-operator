@@ -77,11 +77,10 @@ type MultiClusterEngineReconciler struct {
 	UncachedClient   client.Client
 	CacheSpec        CacheSpec
 	Scheme           *runtime.Scheme
-	Images           map[string]string
-	StatusManager    *status.StatusTracker
-	Log              logr.Logger
-	UpgradeableCond  utils.Condition
-	DeprecatedFields map[string]bool
+	Images          map[string]string
+	StatusManager   *status.StatusTracker
+	Log             logr.Logger
+	UpgradeableCond utils.Condition
 }
 
 const (
@@ -182,9 +181,6 @@ func (r *MultiClusterEngineReconciler) Reconcile(ctx context.Context, req ctrl.R
 	// reset the status conditions for failures that has occurred in previous iterations.
 	backplaneConfig.Status.Conditions = status.FilterOutConditionWithSubString(backplaneConfig.Status.Conditions,
 		backplanev1.MultiClusterEngineComponentFailure)
-
-	// Check if any deprecated fields are present within the backplaneConfig spec.
-	r.CheckDeprecatedFieldUsage(backplaneConfig)
 
 	// reset status manager
 	r.StatusManager.Reset("")
@@ -1448,13 +1444,8 @@ in the MultiClusterEngine annotations.
 */
 func (r *MultiClusterEngineReconciler) isComponentExternallyManaged(mce *backplanev1.MultiClusterEngine,
 	componentName string) bool {
-	annotations := mce.GetAnnotations()
-	if annotations == nil {
-		return false
-	}
-
-	managedComponents, ok := annotations[utils.AnnotationExternallyManaged]
-	if !ok || managedComponents == "" {
+	managedComponents := utils.GetExternallyManagedAnnotation(mce)
+	if managedComponents == "" {
 		return false
 	}
 
@@ -1478,13 +1469,8 @@ getExternallyManagedCRDSkipDirectories returns a list of CRD directory names to 
 for components marked as externally managed.
 */
 func (r *MultiClusterEngineReconciler) getExternallyManagedCRDSkipDirectories(mce *backplanev1.MultiClusterEngine) []string {
-	annotations := mce.GetAnnotations()
-	if annotations == nil {
-		return []string{}
-	}
-
-	managedComponents, ok := annotations[utils.AnnotationExternallyManaged]
-	if !ok || managedComponents == "" {
+	managedComponents := utils.GetExternallyManagedAnnotation(mce)
+	if managedComponents == "" {
 		return []string{}
 	}
 
@@ -1591,18 +1577,8 @@ a status condition to warn the user. This helps users understand which component
 not reconciling.
 */
 func (r *MultiClusterEngineReconciler) checkExternallyManagedComponents(mce *backplanev1.MultiClusterEngine) {
-	annotations := mce.GetAnnotations()
-	if annotations == nil {
-		// No annotations, ensure condition is removed
-		r.StatusManager.Conditions = status.FilterOutConditionWithSubString(
-			r.StatusManager.Conditions,
-			backplanev1.MultiClusterEngineComponentsExternallyManaged,
-		)
-		return
-	}
-
-	managedComponents, ok := annotations[utils.AnnotationExternallyManaged]
-	if !ok || managedComponents == "" {
+	managedComponents := utils.GetExternallyManagedAnnotation(mce)
+	if managedComponents == "" {
 		// Annotation not present or empty, ensure condition is removed
 		r.StatusManager.Conditions = status.FilterOutConditionWithSubString(
 			r.StatusManager.Conditions,
@@ -2584,31 +2560,6 @@ func (r *MultiClusterEngineReconciler) getClusterIngressDomain(ctx context.Conte
 		return "", fmt.Errorf("Domain not found or empty in Ingress")
 	}
 	return clusterIngress.Spec.Domain, nil
-}
-
-func (r *MultiClusterEngineReconciler) CheckDeprecatedFieldUsage(m *backplanev1.MultiClusterEngine) {
-	a := m.GetAnnotations()
-	df := []struct {
-		name      string
-		isPresent bool
-	}{
-		{utils.DeprecatedAnnotationIgnoreOCPVersion, a[utils.DeprecatedAnnotationIgnoreOCPVersion] != ""},
-		{utils.DeprecatedAnnotationImageOverridesCM, a[utils.DeprecatedAnnotationImageOverridesCM] != ""},
-		{utils.DeprecatedAnnotationImageRepo, a[utils.DeprecatedAnnotationImageRepo] != ""},
-		{utils.DeprecatedAnnotationKubeconfig, a[utils.DeprecatedAnnotationKubeconfig] != ""},
-		{utils.DeprecatedAnnotationMCEPause, a[utils.DeprecatedAnnotationMCEPause] != ""},
-	}
-
-	if r.DeprecatedFields == nil {
-		r.DeprecatedFields = make(map[string]bool)
-	}
-
-	for _, f := range df {
-		if f.isPresent && !r.DeprecatedFields[f.name] {
-			r.Log.Info(fmt.Sprintf("Warning: %s field usage is deprecated in operator.", f.name))
-			r.DeprecatedFields[f.name] = true
-		}
-	}
 }
 
 func EnsureCRD(ctx context.Context, c client.Client, crd *unstructured.Unstructured) error {

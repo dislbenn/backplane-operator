@@ -23,7 +23,12 @@ var (
 		AnnotationIgnoreOCPVersion is an annotation used to indicate the operator should not check the OpenShift
 		Container Platform (OCP) version before proceeding when set.
 	*/
-	AnnotationIgnoreOCPVersion           = "installer.multicluster.openshift.io/ignore-ocp-version"
+	AnnotationIgnoreOCPVersion = "installer.multicluster.openshift.io/ignore-ocp-version"
+
+	/*
+		DeprecatedAnnotationIgnoreOCPVersion is DEPRECATED and will be removed in a future release.
+		Use AnnotationIgnoreOCPVersion instead.
+	*/
 	DeprecatedAnnotationIgnoreOCPVersion = "ignoreOCPVersion"
 
 	/*
@@ -36,13 +41,23 @@ var (
 		AnnotationImageOverridesCM is an annotation used in multiclusterengine to specify a custom ConfigMap containing
 		image overrides.
 	*/
-	AnnotationImageOverridesCM           = "installer.multicluster.openshift.io/image-overrides-configmap"
+	AnnotationImageOverridesCM = "installer.multicluster.openshift.io/image-overrides-configmap"
+
+	/*
+		DeprecatedAnnotationImageOverridesCM is DEPRECATED and will be removed in a future release.
+		Use AnnotationImageOverridesCM instead.
+	*/
 	DeprecatedAnnotationImageOverridesCM = "imageOverridesCM"
 
 	/*
 		AnnotationImageRepo is an annotation used in multiclusterengine to specify a custom image repository to use.
 	*/
-	AnnotationImageRepo           = "installer.multicluster.openshift.io/image-repository"
+	AnnotationImageRepo = "installer.multicluster.openshift.io/image-repository"
+
+	/*
+		DeprecatedAnnotationImageRepo is DEPRECATED and will be removed in a future release.
+		Use AnnotationImageRepo instead.
+	*/
 	DeprecatedAnnotationImageRepo = "imageRepository"
 
 	/*
@@ -55,14 +70,24 @@ var (
 		AnnotationKubeconfig is an annotation used to specify the secret name residing in target containing the
 		kubeconfig to access the remote cluster.
 	*/
-	AnnotationKubeconfig           = "installer.multicluster.openshift.io/kubeconfig"
+	AnnotationKubeconfig = "installer.multicluster.openshift.io/kubeconfig"
+
+	/*
+		DeprecatedAnnotationKubeconfig is DEPRECATED and will be removed in a future release.
+		Use AnnotationKubeconfig instead.
+	*/
 	DeprecatedAnnotationKubeconfig = "mce-kubeconfig"
 
 	/*
 		AnnotationMCEPause is an annotation used in multiclusterengine to identify if the multiclusterengine is
 		paused or not.
 	*/
-	AnnotationMCEPause           = "installer.multicluster.openshift.io/pause"
+	AnnotationMCEPause = "installer.multicluster.openshift.io/pause"
+
+	/*
+		DeprecatedAnnotationMCEPause is DEPRECATED and will be removed in a future release.
+		Use AnnotationMCEPause instead.
+	*/
 	DeprecatedAnnotationMCEPause = "pause"
 
 	/*
@@ -82,7 +107,13 @@ var (
 		are managed externally and should not be reconciled by the operator.
 		Expected format: JSON array ["component1","component2","component3"]
 	*/
-	AnnotationExternallyManaged = "installer.openshift.io/externally-managed"
+	AnnotationExternallyManaged = "installer.multicluster.openshift.io/externally-managed"
+
+	/*
+		DeprecatedAnnotationExternallyManaged is DEPRECATED and will be removed in a future release.
+		Use AnnotationExternallyManaged instead.
+	*/
+	DeprecatedAnnotationExternallyManaged = "installer.openshift.io/externally-managed"
 )
 
 /*
@@ -266,4 +297,12 @@ ShouldIgnoreOCPVersion checks if the instance is annotated to skip the minimum O
 func ShouldIgnoreOCPVersion(instance *backplanev1.MultiClusterEngine) bool {
 	return HasAnnotation(instance, AnnotationIgnoreOCPVersion) ||
 		HasAnnotation(instance, DeprecatedAnnotationIgnoreOCPVersion)
+}
+
+/*
+GetExternallyManagedAnnotation returns the externally-managed annotation value,
+using the primary annotation key and falling back to the deprecated key if not set.
+*/
+func GetExternallyManagedAnnotation(instance *backplanev1.MultiClusterEngine) string {
+	return getAnnotationOrDefault(instance, AnnotationExternallyManaged, DeprecatedAnnotationExternallyManaged)
 }

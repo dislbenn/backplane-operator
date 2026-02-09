@@ -40,6 +40,22 @@ import (
 
 const (
 	DefaultTargetNamespace = "multicluster-engine"
+
+	// Current annotation keys
+	annotationIgnoreOCPVersion      = "installer.multicluster.openshift.io/ignore-ocp-version"
+	annotationImageOverridesCM      = "installer.multicluster.openshift.io/image-overrides-configmap"
+	annotationImageRepo             = "installer.multicluster.openshift.io/image-repository"
+	annotationKubeconfig            = "installer.multicluster.openshift.io/kubeconfig"
+	annotationMCEPause              = "installer.multicluster.openshift.io/pause"
+	annotationExternallyManaged     = "installer.multicluster.openshift.io/externally-managed"
+
+	// Deprecated annotation keys
+	deprecatedAnnotationIgnoreOCPVersion  = "ignoreOCPVersion"
+	deprecatedAnnotationImageOverridesCM  = "imageOverridesCM"
+	deprecatedAnnotationImageRepo         = "imageRepository"
+	deprecatedAnnotationKubeconfig        = "mce-kubeconfig"
+	deprecatedAnnotationMCEPause          = "pause"
+	deprecatedAnnotationExternallyManaged = "installer.openshift.io/externally-managed"
 )
 
 type BlockDeletionResource struct {
@@ -164,27 +180,30 @@ func (r *MultiClusterEngine) ValidateCreate() (admission.Warnings, error) {
 	ctx := context.Background()
 	backplaneconfiglog.Info("validate create", "Kind", r.Kind, "Name", r.GetName())
 
+	// Check for deprecated annotations and collect warnings
+	warnings := checkDeprecatedAnnotations(r)
+
 	if (r.Spec.AvailabilityConfig != HABasic) && (r.Spec.AvailabilityConfig != HAHigh) && (r.Spec.AvailabilityConfig != "") {
-		return nil, ErrInvalidAvailability
+		return warnings, ErrInvalidAvailability
 	}
 
 	// Validate components
 	if r.Spec.Overrides != nil {
 		for _, c := range r.Spec.Overrides.Components {
 			if !validComponent(c) {
-				return nil, fmt.Errorf("%w: %s is not a known component", ErrInvalidComponent, c.Name)
+				return warnings, fmt.Errorf("%w: %s is not a known component", ErrInvalidComponent, c.Name)
 			}
 		}
 	}
 
 	// Validate component exclusivity (HyperShift vs Cluster API)
 	if err := r.validateComponentExclusivity(); err != nil {
-		return nil, err
+		return warnings, err
 	}
 
 	mceList := &MultiClusterEngineList{}
 	if err := Client.List(ctx, mceList); err != nil {
-		return nil, fmt.Errorf("unable to list BackplaneConfigs: %s", err)
+		return warnings, fmt.Errorf("unable to list BackplaneConfigs: %s", err)
 	}
 
 	targetNS := r.Spec.TargetNamespace
@@ -193,21 +212,21 @@ func (r *MultiClusterEngine) ValidateCreate() (admission.Warnings, error) {
 	}
 
 	if err := validateLocalClusterNameLength(r.Spec.LocalClusterName); err != nil {
-		return nil, err
+		return warnings, err
 	}
 
 	for _, mce := range mceList.Items {
 		mce := mce
 		if mce.Spec.TargetNamespace == targetNS || (targetNS == DefaultTargetNamespace && mce.Spec.TargetNamespace == "") {
-			return nil, fmt.Errorf("%w: MultiClusterEngine with targetNamespace already exists: '%s'",
+			return warnings, fmt.Errorf("%w: MultiClusterEngine with targetNamespace already exists: '%s'",
 				ErrInvalidNamespace, mce.Name)
 		}
 		if !IsInHostedMode(r) && !IsInHostedMode(&mce) {
-			return nil, fmt.Errorf("%w: MultiClusterEngine in Standalone mode already exists: `%s`. "+
+			return warnings, fmt.Errorf("%w: MultiClusterEngine in Standalone mode already exists: `%s`. "+
 				"Only one resource may exist in Standalone mode.", ErrInvalidDeployMode, mce.Name)
 		}
 	}
-	return nil, nil
+	return warnings, nil
 }
 
 func validateLocalClusterNameLength(name string) (err error) {
@@ -221,13 +240,16 @@ func validateLocalClusterNameLength(name string) (err error) {
 func (r *MultiClusterEngine) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	backplaneconfiglog.Info("validate update", "Kind", r.Kind, "Name", r.GetName())
 
+	// Check for deprecated annotations and collect warnings
+	warnings := checkDeprecatedAnnotations(r)
+
 	oldMCE := old.(*MultiClusterEngine)
 	backplaneconfiglog.Info(oldMCE.Spec.TargetNamespace)
 	if (r.Spec.TargetNamespace != oldMCE.Spec.TargetNamespace) && (oldMCE.Spec.TargetNamespace != "") {
-		return nil, fmt.Errorf("%w: changes cannot be made to target namespace", ErrInvalidNamespace)
+		return warnings, fmt.Errorf("%w: changes cannot be made to target namespace", ErrInvalidNamespace)
 	}
 	if IsInHostedMode(r) != IsInHostedMode(oldMCE) {
-		return nil, fmt.Errorf("%w: changes cannot be made to DeploymentMode", ErrInvalidDeployMode)
+		return warnings, fmt.Errorf("%w: changes cannot be made to DeploymentMode", ErrInvalidDeployMode)
 	}
 
 	oldNS, newNS := "", ""
@@ -238,37 +260,37 @@ func (r *MultiClusterEngine) ValidateUpdate(old runtime.Object) (admission.Warni
 		newNS = r.Spec.Overrides.InfrastructureCustomNamespace
 	}
 	if oldNS != newNS {
-		return nil, fmt.Errorf("%w: changes cannot be made to InfrastructureCustomNamespace", ErrInvalidInfraNS)
+		return warnings, fmt.Errorf("%w: changes cannot be made to InfrastructureCustomNamespace", ErrInvalidInfraNS)
 	}
 
 	if (r.Spec.AvailabilityConfig != HABasic) && (r.Spec.AvailabilityConfig != HAHigh) && (r.Spec.AvailabilityConfig != "") {
-		return nil, ErrInvalidAvailability
+		return warnings, ErrInvalidAvailability
 	}
 
 	// Validate components
 	if r.Spec.Overrides != nil {
 		for _, c := range r.Spec.Overrides.Components {
 			if !validComponent(c) {
-				return nil, fmt.Errorf("%w: %s is not a known component", ErrInvalidComponent, c.Name)
+				return warnings, fmt.Errorf("%w: %s is not a known component", ErrInvalidComponent, c.Name)
 			}
 		}
 	}
 
 	// Validate component exclusivity (HyperShift vs Cluster API)
 	if err := r.validateComponentExclusivity(); err != nil {
-		return nil, err
+		return warnings, err
 	}
 
 	// Block disable if relevant resources present
 	if r.ComponentPresent(Discovery) && !r.Enabled(Discovery) {
 		cfg, err := config.GetConfig()
 		if err != nil {
-			return nil, err
+			return warnings, err
 		}
 
 		c, err := discovery.NewDiscoveryClientForConfig(cfg)
 		if err != nil {
-			return nil, err
+			return warnings, err
 		}
 
 		gvk := schema.GroupVersionKind{
@@ -281,10 +303,10 @@ func (r *MultiClusterEngine) ValidateUpdate(old runtime.Object) (admission.Warni
 		err = discovery.ServerSupportsVersion(c, gvk.GroupVersion())
 		if err == nil {
 			if err := Client.List(context.TODO(), list); err != nil {
-				return nil, fmt.Errorf("unable to list %s: %s", "DiscoveryConfig", err)
+				return warnings, fmt.Errorf("unable to list %s: %s", "DiscoveryConfig", err)
 			}
 			if len(list.Items) != 0 {
-				return nil, fmt.Errorf("existing %s resources must first be deleted", "DiscoveryConfig")
+				return warnings, fmt.Errorf("existing %s resources must first be deleted", "DiscoveryConfig")
 			}
 		}
 	}
@@ -292,7 +314,7 @@ func (r *MultiClusterEngine) ValidateUpdate(old runtime.Object) (admission.Warni
 	// if the Spec.LocalClusterName field has changed
 	if oldMCE.Spec.LocalClusterName != r.Spec.LocalClusterName {
 		if err := validateLocalClusterNameLength(r.Spec.LocalClusterName); err != nil {
-			return nil, err
+			return warnings, err
 		}
 		// block changing localClusterName if the label `managedBy` is set to `true`
 		if IsACMManaged(r) {
@@ -312,18 +334,18 @@ func (r *MultiClusterEngine) ValidateUpdate(old runtime.Object) (admission.Warni
 		list := &unstructured.UnstructuredList{}
 		list.SetGroupVersionKind(managedClusterGVK)
 		if err := Client.List(ctx, list); err != nil {
-			return nil, fmt.Errorf("unable to list ManagedCluster: %s", err)
+			return warnings, fmt.Errorf("unable to list ManagedCluster: %s", err)
 		}
 
 		// Error if any of the ManagedClusters is the `local-cluster`
 		for _, managedCluster := range list.Items {
 			if managedCluster.GetName() == mcName || managedCluster.GetLabels()["local-cluster"] == "true" {
-				return nil, fmt.Errorf("cannot update Spec.LocalClusterName while local-cluster is enabled")
+				return warnings, fmt.Errorf("cannot update Spec.LocalClusterName while local-cluster is enabled")
 			}
 		}
 	}
 
-	return nil, nil
+	return warnings, nil
 }
 
 var cfg *rest.Config
@@ -371,13 +393,13 @@ func (r *MultiClusterEngine) ValidateDelete() (admission.Warnings, error) {
 			return nil, fmt.Errorf("unable to list %s: %s", resource.Name, err)
 		}
 		for _, item := range list.Items {
-			if !contains(resource.NameExceptions, item.GetName()) {
-				return nil, fmt.Errorf("cannot delete %s resource. Existing %s resources must first be deleted",
-					r.Name, resource.Name)
+			// Skip this item if it's excepted by name or label
+			if contains(resource.NameExceptions, item.GetName()) || hasIntersection(resource.LabelExceptions, item.GetLabels()) {
+				continue
 			}
-			if !hasIntersection(resource.LabelExceptions, item.GetLabels()) {
-				return nil, fmt.Errorf("cannot delete %s resource. Necessary labels %v are not present", r.Name, resource.LabelExceptions)
-			}
+			// Item is not excepted, block deletion
+			return nil, fmt.Errorf("cannot delete %s resource. Existing %s resources must first be deleted",
+				r.Name, resource.Name)
 		}
 	}
 	return nil, nil
@@ -400,6 +422,36 @@ func contains(s []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// checkDeprecatedAnnotations examines the MultiClusterEngine resource for deprecated annotations
+// and returns warnings for any that are found.
+func checkDeprecatedAnnotations(r *MultiClusterEngine) admission.Warnings {
+	var warnings admission.Warnings
+	annotations := r.GetAnnotations()
+	if annotations == nil {
+		return warnings
+	}
+
+	// Map of deprecated annotation keys to their current replacements
+	deprecatedAnnotations := map[string]string{
+		deprecatedAnnotationIgnoreOCPVersion:  annotationIgnoreOCPVersion,
+		deprecatedAnnotationImageOverridesCM:  annotationImageOverridesCM,
+		deprecatedAnnotationImageRepo:         annotationImageRepo,
+		deprecatedAnnotationKubeconfig:        annotationKubeconfig,
+		deprecatedAnnotationMCEPause:          annotationMCEPause,
+		deprecatedAnnotationExternallyManaged: annotationExternallyManaged,
+	}
+
+	for deprecatedKey, currentKey := range deprecatedAnnotations {
+		if _, exists := annotations[deprecatedKey]; exists {
+			warning := fmt.Sprintf("annotation '%s' is deprecated and will be removed in a future release. Please use '%s' instead",
+				deprecatedKey, currentKey)
+			warnings = append(warnings, warning)
+		}
+	}
+
+	return warnings
 }
 
 // validateComponentExclusivity ensures HyperShift and Cluster API components are mutually exclusive
