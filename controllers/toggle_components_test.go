@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -1560,4 +1561,124 @@ func Test_ensureNoFleetNavigation(t *testing.T) {
 			t.Fatalf("ensureNoFleetNavigation() returned non-zero result: %v", result)
 		}
 	})
+}
+
+type mockClientWithGetDeleteErrors struct {
+	client.Client
+	getErrors    map[types.NamespacedName]error
+	deleteErrors map[types.NamespacedName]error
+}
+
+func (m *mockClientWithGetDeleteErrors) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
+	if err, ok := m.getErrors[key]; ok {
+		return err
+	}
+	return m.Client.Get(ctx, key, obj, opts...)
+}
+
+func (m *mockClientWithGetDeleteErrors) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	key := types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}
+	if err, ok := m.deleteErrors[key]; ok {
+		return err
+	}
+	return m.Client.Delete(ctx, obj, opts...)
+}
+
+func Test_ensureNoMaestro_errorCases(t *testing.T) {
+	scheme := runtime.NewScheme()
+	corev1.AddToScheme(scheme)
+	backplanev1.AddToScheme(scheme)
+
+	ctx := context.TODO()
+
+	configMapKey := types.NamespacedName{Name: "grpc-server-config", Namespace: "open-cluster-management-hub"}
+	routeKey := types.NamespacedName{Name: "grpc-server", Namespace: "open-cluster-management-hub"}
+
+	internalErr := apierrors.NewInternalError(errors.New("connection refused"))
+
+	existingConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "grpc-server-config",
+			Namespace: "open-cluster-management-hub",
+		},
+	}
+
+	existingRoute := func() runtime.Object {
+		route := &unstructured.Unstructured{}
+		route.SetGroupVersionKind(schema.GroupVersionKind{
+			Group:   "route.openshift.io",
+			Version: "v1",
+			Kind:    "Route",
+		})
+		route.SetName("grpc-server")
+		route.SetNamespace("open-cluster-management-hub")
+		return route
+	}()
+
+	tests := []struct {
+		name         string
+		existingObjs []runtime.Object
+		getErrors    map[types.NamespacedName]error
+		deleteErrors map[types.NamespacedName]error
+		errContains  string
+	}{
+		{
+			name:         "Error getting ConfigMap returns error",
+			existingObjs: []runtime.Object{},
+			getErrors:    map[types.NamespacedName]error{configMapKey: internalErr},
+			errContains:  "failed to get grpc-server-config ConfigMap",
+		},
+		{
+			name:         "Error deleting ConfigMap returns error",
+			existingObjs: []runtime.Object{existingConfigMap},
+			deleteErrors: map[types.NamespacedName]error{configMapKey: internalErr},
+			errContains:  "failed to delete grpc-server-config ConfigMap",
+		},
+		{
+			name:         "Error getting Route returns error",
+			existingObjs: []runtime.Object{},
+			getErrors:    map[types.NamespacedName]error{routeKey: internalErr},
+			errContains:  "failed to get grpc-server Route",
+		},
+		{
+			name:         "Error deleting Route returns error",
+			existingObjs: []runtime.Object{existingRoute},
+			deleteErrors: map[types.NamespacedName]error{routeKey: internalErr},
+			errContains:  "failed to delete grpc-server Route",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cl := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(tt.existingObjs...).Build()
+
+			mockClient := &mockClientWithGetDeleteErrors{
+				Client:       cl,
+				getErrors:    tt.getErrors,
+				deleteErrors: tt.deleteErrors,
+			}
+
+			r := &MultiClusterEngineReconciler{
+				Client:        mockClient,
+				Scheme:        scheme,
+				StatusManager: &status.StatusTracker{Client: mockClient},
+			}
+
+			mce := &backplanev1.MultiClusterEngine{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-mce"},
+				Spec: backplanev1.MultiClusterEngineSpec{
+					TargetNamespace: "test-namespace",
+				},
+			}
+
+			_, err := r.ensureNoMaestro(ctx, mce)
+
+			if err == nil {
+				t.Fatal("expected error but got nil")
+			}
+			if !findSubstring(err.Error(), tt.errContains) {
+				t.Errorf("expected error containing %q, got: %v", tt.errContains, err)
+			}
+		})
+	}
 }
